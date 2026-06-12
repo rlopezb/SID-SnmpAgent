@@ -51,11 +51,16 @@ public class InterfaceData {
   private final long baseOutBps;
   private final boolean hasErrors;
 
+  private static final String[] DESCRIPTIONS = {
+      "RSR-PTN",
+      "RSR-CPN",
+      "RSR-TSR"
+  };
   public InterfaceData(int agentIndex, int ifIdx) {
     this.ifIndex = ifIdx;
     this.ifDescr = "GigabitEthernet0/" + (ifIdx - 1);
     this.ifName  = "Gi0/" + (ifIdx - 1);
-    this.ifAlias = "Link-to-sim" + agentIndex + "-if" + ifIdx;
+    this.ifAlias = "RSR" + String.format("%03d", agentIndex) + " "  + DESCRIPTIONS[ifIdx % DESCRIPTIONS.length];
     this.ifPhysAddress = String.format("%02x:%02x:%02x:%02x:%02x:%02x",
         0x02, agentIndex >> 8 & 0xFF, agentIndex & 0xFF,
         0x00, ifIdx, 0x01);

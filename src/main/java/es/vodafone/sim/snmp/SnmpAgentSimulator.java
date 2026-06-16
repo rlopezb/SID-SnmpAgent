@@ -47,15 +47,15 @@ public class SnmpAgentSimulator {
   public void start() throws IOException {
     // Registrar protocolos de seguridad
     SecurityProtocols.getInstance().addDefaultProtocols();
-    SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthHMAC384SHA512());
-    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES256());
+    SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
+    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES128());
 
     USM globalUsm = new USM(SecurityProtocols.getInstance(),
         new OctetString(MPv3.createLocalEngineID()), 0);
     globalUsm.addUser(new UsmUser(
         new OctetString(USER),
-        AuthHMAC384SHA512.ID, new OctetString(AUTH_KEY),
-        PrivAES256.ID,        new OctetString(PRIV_KEY)
+        AuthSHA.ID, new OctetString(AUTH_KEY),
+        PrivAES128.ID, new OctetString(PRIV_KEY)
     ));
     SecurityModels.getInstance().addSecurityModel(globalUsm);
     for (int i = 0; i < AGENT_COUNT; i++) {
@@ -244,9 +244,9 @@ public class SnmpAgentSimulator {
     // Log SNMP4J — comentar en producción
     LogFactory.setLogFactory(new JavaLogFactory());
     Logger snmpLogger = Logger.getLogger("org.snmp4j");
-    snmpLogger.setLevel(Level.WARNING);  // solo warnings
+    snmpLogger.setLevel(Level.ALL);  // solo warnings
     ConsoleHandler handler = new ConsoleHandler();
-    handler.setLevel(Level.WARNING);
+    handler.setLevel(Level.ALL);
     snmpLogger.addHandler(handler);
 
     SnmpAgentSimulator sim = new SnmpAgentSimulator();

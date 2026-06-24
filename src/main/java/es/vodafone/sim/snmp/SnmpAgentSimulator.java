@@ -1,8 +1,6 @@
 package es.vodafone.sim.snmp;
 
 import org.snmp4j.*;
-import org.snmp4j.log.JavaLogFactory;
-import org.snmp4j.log.LogFactory;
 import org.snmp4j.mp.MPv1;
 import org.snmp4j.mp.MPv2c;
 import org.snmp4j.mp.MPv3;
@@ -10,6 +8,9 @@ import org.snmp4j.mp.StatusInformation;
 import org.snmp4j.security.*;
 import org.snmp4j.smi.*;
 import org.snmp4j.transport.DefaultUdpTransportMapping;
+import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -17,6 +18,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.logging.*;
 
+@Service
 public class SnmpAgentSimulator {
 
   // ── Configuración ──────────────────────────────────────────────
@@ -41,11 +43,14 @@ public class SnmpAgentSimulator {
   private static final String OID_IF_TABLE   = "1.3.6.1.2.1.2.2.1.";
   private static final String OID_IF_X_TABLE = "1.3.6.1.2.1.31.1.1.1.";
 
+  private static final Logger logger = Logger.getLogger(SnmpAgentSimulator.class.getName());
+
   /** Convierte índice 0-499 → "127.1.x.y" */
   private static String indexToIp(int index) {
     return "127.1." + (index / 254) + "." + (index % 254 + 1);
   }
 
+  @PostConstruct
   public void start() throws IOException {
     // Solo registrar protocolos de seguridad en el singleton global —
     // los USM se crean por agente en buildAgent(), no aquí.
@@ -70,15 +75,15 @@ public class SnmpAgentSimulator {
       snmpInstances.add(buildAgent(ip, i, ifaces));
 
       if ((i + 1) % 50 == 0) {
-        System.out.printf("  Arrancados %d agentes...%n", i + 1);
+        logger.info(String.format("  Arrancados %d agentes...%n", i + 1));
       }
     }
 
     ticker.scheduleAtFixedRate(
         this::tickCounters, TICK_SECS, TICK_SECS, TimeUnit.SECONDS);
 
-    System.out.printf("✓ %d agentes SNMPv3 con %d interfaces cada uno " +
-        "escuchando en puerto %d%n", AGENT_COUNT, IF_COUNT, PORT);
+    logger.info(String.format("✓ %d agentes SNMPv3 con %d interfaces cada uno " +
+        "escuchando en puerto %d%n", AGENT_COUNT, IF_COUNT, PORT));
   }
 
   private Snmp buildAgent(String ip, int index, List<InterfaceData> ifaces)
@@ -147,7 +152,7 @@ public class SnmpAgentSimulator {
               statusInfo
           );
         } catch (MessageException e) {
-          System.err.println("Error enviando respuesta [" + ip + "]: " + e.getMessage());
+          logger.severe("Error enviando respuesta [" + ip + "]: " + e.getMessage());
         }
       }
     });
@@ -250,18 +255,20 @@ public class SnmpAgentSimulator {
 
   // ── Ciclo de vida ──────────────────────────────────────────────
 
+  @PreDestroy
   public void stop() {
     ticker.shutdown();
     snmpInstances.forEach(snmp -> {
       try { snmp.close(); } catch (IOException ignored) {}
     });
-    System.out.println("Simulador detenido.");
+    logger.info("Simulador detenido.");
   }
 
-  public static void main(String[] args) throws Exception {
-    SnmpAgentSimulator sim = new SnmpAgentSimulator();
-    sim.start();
-    Runtime.getRuntime().addShutdownHook(new Thread(sim::stop));
-    Thread.currentThread().join();
+  public Map<Integer, List<InterfaceData>> getAgentInterfaces() {
+    return agentInterfaces;
+  }
+
+  public List<Snmp> getSnmpInstances() {
+    return snmpInstances;
   }
 }

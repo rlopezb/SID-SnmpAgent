@@ -3,6 +3,8 @@ package es.vodafone.sim.snmp;
 import org.snmp4j.*;
 import org.snmp4j.log.JavaLogFactory;
 import org.snmp4j.log.LogFactory;
+import org.snmp4j.mp.MPv1;
+import org.snmp4j.mp.MPv2c;
 import org.snmp4j.mp.MPv3;
 import org.snmp4j.mp.StatusInformation;
 import org.snmp4j.security.*;
@@ -27,9 +29,9 @@ public class SnmpAgentSimulator {
   private static final int    TICK_SECS   = 30;
   // ──────────────────────────────────────────────────────────────
 
-  private final List<Snmp>                     snmpInstances    = new ArrayList<>();
+  private final List<Snmp>                        snmpInstances   = new ArrayList<>();
   private final Map<Integer, List<InterfaceData>> agentInterfaces = new HashMap<>();
-  private final ScheduledExecutorService       ticker           =
+  private final ScheduledExecutorService          ticker          =
       Executors.newSingleThreadScheduledExecutor();
 
   // OIDs estáticos
@@ -45,38 +47,33 @@ public class SnmpAgentSimulator {
   }
 
   public void start() throws IOException {
-    // Registrar protocolos de seguridad
+    // Solo registrar protocolos de seguridad en el singleton global —
+    // los USM se crean por agente en buildAgent(), no aquí.
     SecurityProtocols.getInstance().addDefaultProtocols();
     SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
-    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES128());
+    SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthHMAC192SHA256());
+    SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthHMAC384SHA512());
 
-    USM globalUsm = new USM(SecurityProtocols.getInstance(),
-        new OctetString(MPv3.createLocalEngineID()), 0);
-    globalUsm.addUser(new UsmUser(
-        new OctetString(USER),
-        AuthSHA.ID, new OctetString(AUTH_KEY),
-        PrivAES128.ID, new OctetString(PRIV_KEY)
-    ));
-    SecurityModels.getInstance().addSecurityModel(globalUsm);
+    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES128());
+    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES192());
+    SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES256());
+
     for (int i = 0; i < AGENT_COUNT; i++) {
       String ip = indexToIp(i);
 
-      // Crear interfaces para este agente
       List<InterfaceData> ifaces = new ArrayList<>();
       for (int ifIdx = 1; ifIdx <= IF_COUNT; ifIdx++) {
         ifaces.add(new InterfaceData(i, ifIdx));
       }
       agentInterfaces.put(i, ifaces);
 
-      Snmp snmp = buildAgent(ip, i, ifaces);
-      snmpInstances.add(snmp);
+      snmpInstances.add(buildAgent(ip, i, ifaces));
 
       if ((i + 1) % 50 == 0) {
         System.out.printf("  Arrancados %d agentes...%n", i + 1);
       }
     }
 
-    // Ticker de contadores
     ticker.scheduleAtFixedRate(
         this::tickCounters, TICK_SECS, TICK_SECS, TimeUnit.SECONDS);
 
@@ -87,21 +84,46 @@ public class SnmpAgentSimulator {
   private Snmp buildAgent(String ip, int index, List<InterfaceData> ifaces)
       throws IOException {
 
+    // ── Fix 1: engineID único por agente ──────────────────────────
+    byte[] engineId = MPv3.createLocalEngineID(new OctetString("agent-" + index));
+
+    // ── Fix 2: USM propio por agente, NO el singleton global ──────
+    USM usm = new USM(SecurityProtocols.getInstance(),
+        new OctetString(engineId), 0);
+    usm.addUser(new UsmUser(
+        new OctetString(USER),
+        AuthHMAC384SHA512.ID,    new OctetString(AUTH_KEY),
+        PrivAES256.ID, new OctetString(PRIV_KEY)
+    ));
+
+    // ── Fix 3: SecurityModels propio por agente ───────────────────
+    SecurityModels securityModels = new SecurityModels();
+    securityModels.addSecurityModel(usm);
+
+    // ── Fix 4: MPv3 con su USM aislado ───────────────────────────
+    MPv3 mpv3 = new MPv3(engineId);
+    mpv3.setSecurityModels(securityModels);
+
+    // ── Fix 5: Dispatcher propio con el MPv3 correcto ────────────
+    MessageDispatcher dispatcher = new MessageDispatcherImpl();
+    dispatcher.addMessageProcessingModel(new MPv1());
+    dispatcher.addMessageProcessingModel(new MPv2c());
+    dispatcher.addMessageProcessingModel(mpv3);
+
+    // ── Transport enlazado a la IP específica del agente ─────────
     DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping(
         new UdpAddress(InetAddress.getByName(ip), PORT));
-    Snmp snmp = new Snmp(transport);
-    byte[] engineId = MPv3.createLocalEngineID(
-        new OctetString("agent-" + index));
-    snmp.getMessageDispatcher().addMessageProcessingModel(
-        new MPv3(engineId));
+
+    // ── Snmp construido con el dispatcher propio ─────────────────
+    Snmp snmp = new Snmp(dispatcher, transport);
 
     snmp.addCommandResponder(new CommandResponder() {
       @Override
-      public <A extends Address> void processPdu(CommandResponderEvent<A> pdu) {
-        if (pdu.getPDU() == null) return;
-        if (!(pdu.getPeerAddress() instanceof UdpAddress)) return;
+      public <A extends Address> void processPdu(CommandResponderEvent<A> event) {
+        if (event.getPDU() == null) return;
+        if (!(event.getPeerAddress() instanceof UdpAddress)) return;
 
-        ScopedPDU request  = (ScopedPDU) pdu.getPDU();
+        ScopedPDU request  = (ScopedPDU) event.getPDU();
         ScopedPDU response = new ScopedPDU();
         response.setType(PDU.RESPONSE);
         response.setRequestID(request.getRequestID());
@@ -115,18 +137,17 @@ public class SnmpAgentSimulator {
         StatusInformation statusInfo = new StatusInformation();
         try {
           snmp.getMessageDispatcher().returnResponsePdu(
-              pdu.getMessageProcessingModel(),
-              pdu.getSecurityModel(),
-              pdu.getSecurityName(),
-              pdu.getSecurityLevel(),
+              event.getMessageProcessingModel(),
+              event.getSecurityModel(),
+              event.getSecurityName(),
+              event.getSecurityLevel(),
               response,
-              pdu.getMaxSizeResponsePDU(),
-              pdu.getStateReference(),
+              event.getMaxSizeResponsePDU(),
+              event.getStateReference(),
               statusInfo
           );
         } catch (MessageException e) {
-          System.err.println("Error enviando respuesta [" + ip + "]: "
-              + e.getMessage());
+          System.err.println("Error enviando respuesta [" + ip + "]: " + e.getMessage());
         }
       }
     });
@@ -141,7 +162,6 @@ public class SnmpAgentSimulator {
                                      List<InterfaceData> ifaces) {
     String oidStr = oid.toString();
 
-    // Sistema
     switch (oidStr) {
       case OID_SYS_DESCR -> {
         return new VariableBinding(oid,
@@ -155,7 +175,6 @@ public class SnmpAgentSimulator {
       }
     }
 
-    // ifTable: 1.3.6.1.2.1.2.2.1.<col>.<ifIndex>
     if (oidStr.startsWith(OID_IF_TABLE)) {
       String[] parts = oidStr.split("\\.");
       try {
@@ -166,7 +185,6 @@ public class SnmpAgentSimulator {
       } catch (NumberFormatException ignored) {}
     }
 
-    // ifXTable: 1.3.6.1.2.1.31.1.1.1.<col>.<ifIndex>
     if (oidStr.startsWith(OID_IF_X_TABLE)) {
       String[] parts = oidStr.split("\\.");
       try {
@@ -241,14 +259,6 @@ public class SnmpAgentSimulator {
   }
 
   public static void main(String[] args) throws Exception {
-    // Log SNMP4J — comentar en producción
-    LogFactory.setLogFactory(new JavaLogFactory());
-    Logger snmpLogger = Logger.getLogger("org.snmp4j");
-    snmpLogger.setLevel(Level.ALL);  // solo warnings
-    ConsoleHandler handler = new ConsoleHandler();
-    handler.setLevel(Level.ALL);
-    snmpLogger.addHandler(handler);
-
     SnmpAgentSimulator sim = new SnmpAgentSimulator();
     sim.start();
     Runtime.getRuntime().addShutdownHook(new Thread(sim::stop));

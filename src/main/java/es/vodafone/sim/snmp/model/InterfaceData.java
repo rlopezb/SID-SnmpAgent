@@ -1,4 +1,4 @@
-package es.vodafone.sim.snmp;
+package es.vodafone.sim.snmp.model;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.Random;

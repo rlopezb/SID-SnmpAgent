@@ -1,5 +1,6 @@
-package es.vodafone.sim.snmp;
+package es.vodafone.sim.snmp.service;
 
+import es.vodafone.sim.snmp.model.InterfaceData;
 import org.snmp4j.*;
 import org.snmp4j.mp.MPv1;
 import org.snmp4j.mp.MPv2c;
@@ -31,9 +32,9 @@ public class SnmpAgentSimulator {
   private static final int    TICK_SECS   = 30;
   // ──────────────────────────────────────────────────────────────
 
-  private final List<Snmp>                        snmpInstances   = new ArrayList<>();
-  private final Map<Integer, List<InterfaceData>> agentInterfaces = new HashMap<>();
-  private final ScheduledExecutorService          ticker          =
+  // Mapa principal: IP → AgentEntry (Snmp + interfaces)
+  private final ConcurrentHashMap<String, AgentEntry> agents = new ConcurrentHashMap<>();
+  private final ScheduledExecutorService ticker =
       Executors.newSingleThreadScheduledExecutor();
 
   // OIDs estáticos
@@ -45,6 +46,12 @@ public class SnmpAgentSimulator {
 
   private static final Logger logger = Logger.getLogger(SnmpAgentSimulator.class.getName());
 
+  // ── Contenedor de un agente ────────────────────────────────────
+
+  public record AgentEntry(Snmp snmp, List<InterfaceData> ifaces) {}
+
+  // ── Arranque inicial ───────────────────────────────────────────
+
   /** Convierte índice 0-499 → "127.1.x.y" */
   private static String indexToIp(int index) {
     return "127.1." + (index / 254) + "." + (index % 254 + 1);
@@ -52,74 +59,90 @@ public class SnmpAgentSimulator {
 
   @PostConstruct
   public void start() throws IOException {
-    // Solo registrar protocolos de seguridad en el singleton global —
-    // los USM se crean por agente en buildAgent(), no aquí.
     SecurityProtocols.getInstance().addDefaultProtocols();
     SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
     SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthHMAC192SHA256());
     SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthHMAC384SHA512());
-
     SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES128());
     SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES192());
     SecurityProtocols.getInstance().addPrivacyProtocol(new PrivAES256());
 
     for (int i = 0; i < AGENT_COUNT; i++) {
       String ip = indexToIp(i);
-
-      List<InterfaceData> ifaces = new ArrayList<>();
-      for (int ifIdx = 1; ifIdx <= IF_COUNT; ifIdx++) {
-        ifaces.add(new InterfaceData(i, ifIdx));
-      }
-      agentInterfaces.put(i, ifaces);
-
-      snmpInstances.add(buildAgent(ip, i, ifaces));
-
+      addAgent(ip);
       if ((i + 1) % 50 == 0) {
         logger.info(String.format("  Arrancados %d agentes...%n", i + 1));
       }
     }
 
-    ticker.scheduleAtFixedRate(
-        this::tickCounters, TICK_SECS, TICK_SECS, TimeUnit.SECONDS);
+    ticker.scheduleAtFixedRate(this::tickCounters, TICK_SECS, TICK_SECS, TimeUnit.SECONDS);
 
     logger.info(String.format("✓ %d agentes SNMPv3 con %d interfaces cada uno " +
         "escuchando en puerto %d%n", AGENT_COUNT, IF_COUNT, PORT));
   }
 
-  private Snmp buildAgent(String ip, int index, List<InterfaceData> ifaces)
-      throws IOException {
+  // ── API dinámica ───────────────────────────────────────────────
 
-    // ── Fix 1: engineID único por agente ──────────────────────────
+  /**
+   * Añade un agente en la IP indicada. Si ya existe, lanza IllegalStateException.
+   */
+  public synchronized void addAgent(String ip) throws IOException {
+    if (agents.containsKey(ip)) {
+      throw new IllegalStateException("Ya existe un agente en " + ip);
+    }
+    int agentIndex = agents.size(); // índice arbitrario para nombrar interfaces
+    List<InterfaceData> ifaces = new ArrayList<>();
+    for (int ifIdx = 1; ifIdx <= IF_COUNT; ifIdx++) {
+      ifaces.add(new InterfaceData(agentIndex, ifIdx));
+    }
+    Snmp snmp = buildSnmp(ip, agentIndex, ifaces);
+    agents.put(ip, new AgentEntry(snmp, ifaces));
+    logger.info("Agente añadido: " + ip);
+  }
+
+  /**
+   * Elimina y cierra el agente en la IP indicada. Si no existe, lanza IllegalArgumentException.
+   */
+  public void removeAgent(String ip) throws IOException {
+    AgentEntry entry = agents.remove(ip);
+    if (entry == null) {
+      throw new IllegalArgumentException("No existe ningún agente en " + ip);
+    }
+    entry.snmp().close();
+    logger.info("Agente eliminado: " + ip);
+  }
+
+  /** Devuelve las IPs de todos los agentes activos. */
+  public Set<String> listAgents() {
+    return Collections.unmodifiableSet(agents.keySet());
+  }
+
+  // ── Construcción interna ───────────────────────────────────────
+
+  private Snmp buildSnmp(String ip, int index, List<InterfaceData> ifaces) throws IOException {
     byte[] engineId = MPv3.createLocalEngineID(new OctetString("agent-" + index));
 
-    // ── Fix 2: USM propio por agente, NO el singleton global ──────
-    USM usm = new USM(SecurityProtocols.getInstance(),
-        new OctetString(engineId), 0);
+    USM usm = new USM(SecurityProtocols.getInstance(), new OctetString(engineId), 0);
     usm.addUser(new UsmUser(
         new OctetString(USER),
-        AuthHMAC384SHA512.ID,    new OctetString(AUTH_KEY),
-        PrivAES256.ID, new OctetString(PRIV_KEY)
+        AuthHMAC384SHA512.ID, new OctetString(AUTH_KEY),
+        PrivAES256.ID,        new OctetString(PRIV_KEY)
     ));
 
-    // ── Fix 3: SecurityModels propio por agente ───────────────────
     SecurityModels securityModels = new SecurityModels();
     securityModels.addSecurityModel(usm);
 
-    // ── Fix 4: MPv3 con su USM aislado ───────────────────────────
     MPv3 mpv3 = new MPv3(engineId);
     mpv3.setSecurityModels(securityModels);
 
-    // ── Fix 5: Dispatcher propio con el MPv3 correcto ────────────
     MessageDispatcher dispatcher = new MessageDispatcherImpl();
     dispatcher.addMessageProcessingModel(new MPv1());
     dispatcher.addMessageProcessingModel(new MPv2c());
     dispatcher.addMessageProcessingModel(mpv3);
 
-    // ── Transport enlazado a la IP específica del agente ─────────
     DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping(
         new UdpAddress(InetAddress.getByName(ip), PORT));
 
-    // ── Snmp construido con el dispatcher propio ─────────────────
     Snmp snmp = new Snmp(dispatcher, transport);
 
     snmp.addCommandResponder(new CommandResponder() {
@@ -249,8 +272,8 @@ public class SnmpAgentSimulator {
   // ── Ticker ─────────────────────────────────────────────────────
 
   private void tickCounters() {
-    agentInterfaces.values().forEach(ifaces ->
-        ifaces.forEach(iface -> iface.tick(TICK_SECS)));
+    agents.values().forEach(entry ->
+        entry.ifaces().forEach(iface -> iface.tick(TICK_SECS)));
   }
 
   // ── Ciclo de vida ──────────────────────────────────────────────
@@ -258,17 +281,9 @@ public class SnmpAgentSimulator {
   @PreDestroy
   public void stop() {
     ticker.shutdown();
-    snmpInstances.forEach(snmp -> {
-      try { snmp.close(); } catch (IOException ignored) {}
+    agents.values().forEach(entry -> {
+      try { entry.snmp().close(); } catch (IOException ignored) {}
     });
     logger.info("Simulador detenido.");
-  }
-
-  public Map<Integer, List<InterfaceData>> getAgentInterfaces() {
-    return agentInterfaces;
-  }
-
-  public List<Snmp> getSnmpInstances() {
-    return snmpInstances;
   }
 }

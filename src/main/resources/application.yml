@@ -11,3 +11,11 @@ logging:
   level:
     root: INFO
     es.vodafone.sim.snmp: DEBUG
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs

@@ -1,6 +1,7 @@
 package es.vodafone.sim.snmp.service;
 
 import es.vodafone.sim.snmp.model.InterfaceData;
+import es.vodafone.sim.snmp.model.InterfacePatch;
 import org.snmp4j.*;
 import org.snmp4j.mp.MPv1;
 import org.snmp4j.mp.MPv2c;
@@ -23,13 +24,13 @@ import java.util.logging.*;
 public class SnmpAgentSimulator {
 
   // ── Configuración ──────────────────────────────────────────────
-  private static final int    AGENT_COUNT = 500;
-  private static final int    IF_COUNT    = 10;
-  private static final int    PORT        = 1161;
-  private static final String USER        = "simuser";
-  private static final String AUTH_KEY    = "authpassword12";
-  private static final String PRIV_KEY    = "privpassword12";
-  private static final int    TICK_SECS   = 30;
+  private static final int AGENT_COUNT = 500;
+  private static final int IF_COUNT = 10;
+  private static final int PORT = 1161;
+  private static final String USER = "simuser";
+  private static final String AUTH_KEY = "authpassword12";
+  private static final String PRIV_KEY = "privpassword12";
+  private static final int TICK_SECS = 30;
   // ──────────────────────────────────────────────────────────────
 
   // Mapa principal: IP → AgentEntry (Snmp + interfaces)
@@ -38,21 +39,24 @@ public class SnmpAgentSimulator {
       Executors.newSingleThreadScheduledExecutor();
 
   // OIDs estáticos
-  private static final String OID_SYS_DESCR  = "1.3.6.1.2.1.1.1.0";
-  private static final String OID_SYS_NAME   = "1.3.6.1.2.1.1.5.0";
-  private static final String OID_IF_NUMBER  = "1.3.6.1.2.1.2.1.0";
-  private static final String OID_IF_TABLE   = "1.3.6.1.2.1.2.2.1.";
+  private static final String OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0";
+  private static final String OID_SYS_NAME = "1.3.6.1.2.1.1.5.0";
+  private static final String OID_IF_NUMBER = "1.3.6.1.2.1.2.1.0";
+  private static final String OID_IF_TABLE = "1.3.6.1.2.1.2.2.1.";
   private static final String OID_IF_X_TABLE = "1.3.6.1.2.1.31.1.1.1.";
 
   private static final Logger logger = Logger.getLogger(SnmpAgentSimulator.class.getName());
 
   // ── Contenedor de un agente ────────────────────────────────────
 
-  public record AgentEntry(Snmp snmp, List<InterfaceData> ifaces) {}
+  public record AgentEntry(Snmp snmp, List<InterfaceData> ifaces) {
+  }
 
   // ── Arranque inicial ───────────────────────────────────────────
 
-  /** Convierte índice 0-499 → "127.1.x.y" */
+  /**
+   * Convierte índice 0-499 → "127.1.x.y"
+   */
   private static String indexToIp(int index) {
     return "127.1." + (index / 254) + "." + (index % 254 + 1);
   }
@@ -112,7 +116,9 @@ public class SnmpAgentSimulator {
     logger.info("Agente eliminado: " + ip);
   }
 
-  /** Devuelve las IPs de todos los agentes activos. */
+  /**
+   * Devuelve las IPs de todos los agentes activos.
+   */
   public Set<String> listAgents() {
     return Collections.unmodifiableSet(agents.keySet());
   }
@@ -126,7 +132,7 @@ public class SnmpAgentSimulator {
     usm.addUser(new UsmUser(
         new OctetString(USER),
         AuthHMAC384SHA512.ID, new OctetString(AUTH_KEY),
-        PrivAES256.ID,        new OctetString(PRIV_KEY)
+        PrivAES256.ID, new OctetString(PRIV_KEY)
     ));
 
     SecurityModels securityModels = new SecurityModels();
@@ -151,7 +157,7 @@ public class SnmpAgentSimulator {
         if (event.getPDU() == null) return;
         if (!(event.getPeerAddress() instanceof UdpAddress)) return;
 
-        ScopedPDU request  = (ScopedPDU) event.getPDU();
+        ScopedPDU request = (ScopedPDU) event.getPDU();
         ScopedPDU response = new ScopedPDU();
         response.setType(PDU.RESPONSE);
         response.setRequestID(request.getRequestID());
@@ -206,21 +212,23 @@ public class SnmpAgentSimulator {
     if (oidStr.startsWith(OID_IF_TABLE)) {
       String[] parts = oidStr.split("\\.");
       try {
-        int col     = Integer.parseInt(parts[parts.length - 2]);
+        int col = Integer.parseInt(parts[parts.length - 2]);
         int ifIndex = Integer.parseInt(parts[parts.length - 1]);
         if (ifIndex >= 1 && ifIndex <= IF_COUNT)
           return resolveIfEntry(oid, col, ifaces.get(ifIndex - 1));
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException ignored) {
+      }
     }
 
     if (oidStr.startsWith(OID_IF_X_TABLE)) {
       String[] parts = oidStr.split("\\.");
       try {
-        int col     = Integer.parseInt(parts[parts.length - 2]);
+        int col = Integer.parseInt(parts[parts.length - 2]);
         int ifIndex = Integer.parseInt(parts[parts.length - 1]);
         if (ifIndex >= 1 && ifIndex <= IF_COUNT)
           return resolveIfXEntry(oid, col, ifaces.get(ifIndex - 1));
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException ignored) {
+      }
     }
 
     return new VariableBinding(oid, Null.noSuchObject);
@@ -228,14 +236,14 @@ public class SnmpAgentSimulator {
 
   private VariableBinding resolveIfEntry(OID oid, int col, InterfaceData i) {
     return switch (col) {
-      case 1  -> new VariableBinding(oid, new Integer32(i.ifIndex));
-      case 2  -> new VariableBinding(oid, new OctetString(i.ifDescr));
-      case 3  -> new VariableBinding(oid, new Integer32(i.ifType));
-      case 4  -> new VariableBinding(oid, new Integer32(i.ifMtu));
-      case 5  -> new VariableBinding(oid, new Gauge32(i.ifSpeed));
-      case 6  -> new VariableBinding(oid, new OctetString(i.ifPhysAddress));
-      case 7  -> new VariableBinding(oid, new Integer32(i.ifAdminStatus));
-      case 8  -> new VariableBinding(oid, new Integer32(i.ifOperStatus));
+      case 1 -> new VariableBinding(oid, new Integer32(i.ifIndex));
+      case 2 -> new VariableBinding(oid, new OctetString(i.ifDescr));
+      case 3 -> new VariableBinding(oid, new Integer32(i.ifType));
+      case 4 -> new VariableBinding(oid, new Integer32(i.ifMtu));
+      case 5 -> new VariableBinding(oid, new Gauge32(i.ifSpeed));
+      case 6 -> new VariableBinding(oid, new OctetString(i.ifPhysAddress));
+      case 7 -> new VariableBinding(oid, new Integer32(i.ifAdminStatus));
+      case 8 -> new VariableBinding(oid, new Integer32(i.ifOperStatus));
       case 10 -> new VariableBinding(oid, new Counter32(i.ifInOctets.get()));
       case 11 -> new VariableBinding(oid, new Counter32(i.ifInUcastPkts.get()));
       case 13 -> new VariableBinding(oid, new Counter32(i.ifInDiscards.get()));
@@ -250,15 +258,15 @@ public class SnmpAgentSimulator {
 
   private VariableBinding resolveIfXEntry(OID oid, int col, InterfaceData i) {
     return switch (col) {
-      case 1  -> new VariableBinding(oid, new OctetString(i.ifName));
-      case 2  -> new VariableBinding(oid, new Counter32(i.ifInMulticastPkts.get()));
-      case 3  -> new VariableBinding(oid, new Counter32(i.ifInBroadcastPkts.get()));
-      case 4  -> new VariableBinding(oid, new Counter32(i.ifOutMulticastPkts.get()));
-      case 5  -> new VariableBinding(oid, new Counter32(i.ifOutBroadcastPkts.get()));
-      case 6  -> new VariableBinding(oid, new Counter64(i.ifHCInOctets.get()));
-      case 7  -> new VariableBinding(oid, new Counter64(i.ifHCInUcastPkts.get()));
-      case 8  -> new VariableBinding(oid, new Counter64(i.ifHCInMulticastPkts.get()));
-      case 9  -> new VariableBinding(oid, new Counter64(i.ifHCInBroadcastPkts.get()));
+      case 1 -> new VariableBinding(oid, new OctetString(i.ifName));
+      case 2 -> new VariableBinding(oid, new Counter32(i.ifInMulticastPkts.get()));
+      case 3 -> new VariableBinding(oid, new Counter32(i.ifInBroadcastPkts.get()));
+      case 4 -> new VariableBinding(oid, new Counter32(i.ifOutMulticastPkts.get()));
+      case 5 -> new VariableBinding(oid, new Counter32(i.ifOutBroadcastPkts.get()));
+      case 6 -> new VariableBinding(oid, new Counter64(i.ifHCInOctets.get()));
+      case 7 -> new VariableBinding(oid, new Counter64(i.ifHCInUcastPkts.get()));
+      case 8 -> new VariableBinding(oid, new Counter64(i.ifHCInMulticastPkts.get()));
+      case 9 -> new VariableBinding(oid, new Counter64(i.ifHCInBroadcastPkts.get()));
       case 10 -> new VariableBinding(oid, new Counter64(i.ifHCOutOctets.get()));
       case 11 -> new VariableBinding(oid, new Counter64(i.ifHCOutUcastPkts.get()));
       case 12 -> new VariableBinding(oid, new Counter64(i.ifHCOutMulticastPkts.get()));
@@ -276,13 +284,62 @@ public class SnmpAgentSimulator {
         entry.ifaces().forEach(iface -> iface.tick(TICK_SECS)));
   }
 
+
+  // ── Gestión dinámica de interfaces ────────────────────────────
+
+  /**
+   * Devuelve la lista de interfaces de un agente (referencia viva).
+   */
+  public List<InterfaceData> getInterfaces(String ip) {
+    AgentEntry entry = agents.get(ip);
+    if (entry == null) throw new IllegalArgumentException("No existe ningún agente en " + ip);
+    return entry.ifaces();
+  }
+
+  /**
+   * Añade una interfaz nueva al agente. ifIdx debe ser único dentro del agente.
+   */
+  public synchronized InterfaceData addInterface(String ip, int ifIdx) {
+    List<InterfaceData> ifaces = getInterfaces(ip);
+    boolean exists = ifaces.stream().anyMatch(i -> i.ifIndex == ifIdx);
+    if (exists) throw new IllegalStateException("Ya existe ifIndex=" + ifIdx + " en " + ip);
+    int agentIndex = ifaces.isEmpty() ? 0 : ifaces.get(0).ifIndex; // aproximación
+    InterfaceData iface = new InterfaceData(agentIndex, ifIdx);
+    ifaces.add(iface);
+    return iface;
+  }
+
+  /**
+   * Elimina la interfaz con el ifIndex dado del agente.
+   */
+  public synchronized void removeInterface(String ip, int ifIdx) {
+    List<InterfaceData> ifaces = getInterfaces(ip);
+    boolean removed = ifaces.removeIf(i -> i.ifIndex == ifIdx);
+    if (!removed) throw new IllegalArgumentException("No existe ifIndex=" + ifIdx + " en " + ip);
+  }
+
+  /**
+   * Aplica un patch parcial a la interfaz indicada. Devuelve la interfaz modificada.
+   */
+  public InterfaceData patchInterface(String ip, int ifIdx, InterfacePatch patch) {
+    List<InterfaceData> ifaces = getInterfaces(ip);
+    return ifaces.stream()
+        .filter(i -> i.ifIndex == ifIdx)
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("No existe ifIndex=" + ifIdx + " en " + ip))
+        .applyPatch(patch);
+  }
+
   // ── Ciclo de vida ──────────────────────────────────────────────
 
   @PreDestroy
   public void stop() {
     ticker.shutdown();
     agents.values().forEach(entry -> {
-      try { entry.snmp().close(); } catch (IOException ignored) {}
+      try {
+        entry.snmp().close();
+      } catch (IOException ignored) {
+      }
     });
     logger.info("Simulador detenido.");
   }

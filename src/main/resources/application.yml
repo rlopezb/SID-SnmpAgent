@@ -10,7 +10,12 @@ server:
 logging:
   level:
     root: INFO
-    es.vodafone.sim.snmp: DEBUG
+    es:
+      vodafone:
+        sim:
+          snmp: DEBUG
+    org:
+      snmp4j: TRACE
 
 springdoc:
   swagger-ui:

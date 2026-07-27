@@ -5,37 +5,36 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.http.ResponseEntity;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.util.Map;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/agents")
 @Tag(name = "Agents", description = "Gestión dinámica de agentes SNMPv3")
+@RequiredArgsConstructor
 public class AgentController {
-
   private final SnmpAgentSimulator simulator;
 
-  public AgentController(SnmpAgentSimulator simulator) {
-    this.simulator = simulator;
+  private String normalize(String ip) {
+    return ip.replace('-', '.');
   }
-
-  private String normalize(String ip) { return ip.replace('-', '.'); }
 
   @GetMapping
   @Operation(
       summary = "Lista agentes activos",
-      description = "Devuelve las IPs de todos los agentes SNMPv3 activos y su número total.",
+      description = "Devuelve las IPs de todos los agentes SNMPv3 activos (array JSON).",
       responses = {
           @ApiResponse(responseCode = "200", description = "OK")
       }
   )
-  public ResponseEntity<Map<String, Object>> list() {
+  public List<String> list() {
     Set<String> ips = simulator.listAgents();
-    return ResponseEntity.ok(Map.of("count", ips.size(), "agents", ips));
+    return ips.stream().sorted().collect(Collectors.toList());
   }
 
   @PostMapping("/{ip}")
@@ -53,16 +52,10 @@ public class AgentController {
           @ApiResponse(responseCode = "500", description = "Error al arrancar el socket UDP")
       }
   )
-  public ResponseEntity<Map<String, String>> add(@PathVariable String ip) {
+  public String add(@PathVariable String ip) throws IOException {
     String normalizedIp = normalize(ip);
-    try {
-      simulator.addAgent(normalizedIp);
-      return ResponseEntity.ok(Map.of("status", "created", "ip", normalizedIp));
-    } catch (IllegalStateException e) {
-      return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
-    } catch (IOException e) {
-      return ResponseEntity.status(500).body(Map.of("error", "Error al arrancar el agente: " + e.getMessage()));
-    }
+    simulator.addAgent(normalizedIp);
+    return normalizedIp;
   }
 
   @DeleteMapping("/{ip}")
@@ -76,15 +69,9 @@ public class AgentController {
           @ApiResponse(responseCode = "500", description = "Error al cerrar el socket UDP")
       }
   )
-  public ResponseEntity<Map<String, String>> remove(@PathVariable String ip) {
+  public String remove(@PathVariable String ip) throws IOException {
     String normalizedIp = normalize(ip);
-    try {
-      simulator.removeAgent(normalizedIp);
-      return ResponseEntity.ok(Map.of("status", "deleted", "ip", normalizedIp));
-    } catch (IllegalArgumentException e) {
-      return ResponseEntity.status(404).body(Map.of("error", e.getMessage()));
-    } catch (IOException e) {
-      return ResponseEntity.status(500).body(Map.of("error", "Error al cerrar el agente: " + e.getMessage()));
-    }
+    simulator.removeAgent(normalizedIp);
+    return normalizedIp;
   }
 }

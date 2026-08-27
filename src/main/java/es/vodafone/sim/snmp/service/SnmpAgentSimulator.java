@@ -1,7 +1,6 @@
 package es.vodafone.sim.snmp.service;
 
 import es.vodafone.sim.snmp.model.InterfaceData;
-import es.vodafone.sim.snmp.model.InterfacePatch;
 import org.snmp4j.*;
 import org.snmp4j.mp.MPv1;
 import org.snmp4j.mp.MPv2c;
@@ -301,9 +300,9 @@ public class SnmpAgentSimulator {
    */
   public synchronized InterfaceData addInterface(String ip, int ifIdx) {
     List<InterfaceData> ifaces = getInterfaces(ip);
-    boolean exists = ifaces.stream().anyMatch(i -> i.ifIndex == ifIdx);
+    boolean exists = ifaces.stream().anyMatch(interfaceData -> interfaceData.ifIndex.equals(ifIdx));
     if (exists) throw new IllegalStateException("Ya existe ifIndex=" + ifIdx + " en " + ip);
-    int agentIndex = ifaces.isEmpty() ? 0 : ifaces.get(0).ifIndex; // aproximación
+    int agentIndex = ifaces.isEmpty() ? 0 : ifaces.getFirst().ifIndex; // aproximación
     InterfaceData iface = new InterfaceData(agentIndex, ifIdx);
     ifaces.add(iface);
     return iface;
@@ -313,18 +312,18 @@ public class SnmpAgentSimulator {
    * Elimina la interfaz con el ifIndex dado del agente.
    */
   public synchronized void removeInterface(String ip, int ifIdx) {
-    List<InterfaceData> ifaces = getInterfaces(ip);
-    boolean removed = ifaces.removeIf(i -> i.ifIndex == ifIdx);
+    List<InterfaceData> interfaces = getInterfaces(ip);
+    boolean removed = interfaces.removeIf(interfaceData -> interfaceData.ifIndex.equals(ifIdx));
     if (!removed) throw new IllegalArgumentException("No existe ifIndex=" + ifIdx + " en " + ip);
   }
 
   /**
    * Aplica un patch parcial a la interfaz indicada. Devuelve la interfaz modificada.
    */
-  public InterfaceData patchInterface(String ip, int ifIdx, InterfacePatch patch) {
-    List<InterfaceData> ifaces = getInterfaces(ip);
-    return ifaces.stream()
-        .filter(i -> i.ifIndex == ifIdx)
+  public InterfaceData patchInterface(String ip, int ifIdx, InterfaceData patch) {
+    List<InterfaceData> interfaces = getInterfaces(ip);
+    return interfaces.stream()
+        .filter(interfaceData -> interfaceData.ifIndex.equals(ifIdx))
         .findFirst()
         .orElseThrow(() -> new IllegalArgumentException("No existe ifIndex=" + ifIdx + " en " + ip))
         .applyPatch(patch);

@@ -8,17 +8,11 @@
         <groupId>es.vodafone</groupId>
         <artifactId>SID</artifactId>
         <version>1.0-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <groupId>es.vodafone.sid</groupId>
     <artifactId>SnmpAgent</artifactId>
     <name>SnmpAgent</name>
     <description>Spring Boot SNMP Agent Simulator</description>
-
-    <properties>
-        <java.version>25</java.version>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -28,21 +22,15 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.6.0</version>
         </dependency>
-
         <dependency>
             <groupId>org.snmp4j</groupId>
             <artifactId>snmp4j</artifactId>
-            <version>3.11.0</version>
         </dependency>
-
         <dependency>
             <groupId>org.snmp4j</groupId>
             <artifactId>snmp4j-agent</artifactId>
-            <version>3.8.3</version>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -58,5 +46,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

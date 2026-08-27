@@ -1,7 +1,6 @@
 package es.vodafone.sim.snmp.controller;
 
 import es.vodafone.sim.snmp.model.InterfaceData;
-import es.vodafone.sim.snmp.model.InterfacePatch;
 import es.vodafone.sim.snmp.service.SnmpAgentSimulator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -42,7 +41,7 @@ public class InterfaceController {
           @ApiResponse(responseCode = "404", description = "Agente o interfaz no encontrada")})
   public InterfaceData get(@PathVariable String ip, @PathVariable int ifIdx) {
     return simulator.getInterfaces(normalize(ip)).stream()
-        .filter(i -> i.ifIndex == ifIdx)
+        .filter(i -> i.ifIndex.equals(ifIdx))
         .findFirst()
         .orElseThrow(() -> new IllegalArgumentException("No existe ifIndex=" + ifIdx + " en " + normalize(ip)));
   }
@@ -68,7 +67,7 @@ public class InterfaceController {
       responses = {@ApiResponse(responseCode = "200", description = "Interfaz modificada"),
           @ApiResponse(responseCode = "404", description = "Agente o interfaz no encontrada")})
   public InterfaceData patch(@PathVariable String ip, @PathVariable int ifIdx,
-                             @RequestBody InterfacePatch patch) {
+                             @RequestBody InterfaceData patch) {
     return simulator.patchInterface(normalize(ip), ifIdx, patch);
   }
 

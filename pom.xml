@@ -8,6 +8,7 @@
         <groupId>es.vodafone</groupId>
         <artifactId>SID</artifactId>
         <version>1.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>SnmpAgent</artifactId>
@@ -22,14 +23,17 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>3.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.snmp4j</groupId>
             <artifactId>snmp4j</artifactId>
+            <version>3.12.2</version>
         </dependency>
         <dependency>
             <groupId>org.snmp4j</groupId>
             <artifactId>snmp4j-agent</artifactId>
+            <version>3.8.3</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

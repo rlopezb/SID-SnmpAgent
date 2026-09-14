@@ -15,7 +15,7 @@ logging:
         sim:
           snmp: DEBUG
     org:
-      snmp4j: ERROR
+      snmp4j: TRACE
 
 springdoc:
   swagger-ui:

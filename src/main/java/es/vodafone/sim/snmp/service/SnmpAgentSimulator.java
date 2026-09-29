@@ -23,7 +23,7 @@ import java.util.logging.*;
 public class SnmpAgentSimulator {
 
   // ── Configuración ──────────────────────────────────────────────
-  private static final int AGENT_COUNT = 500;
+  private static final int AGENT_COUNT = 2;
   private static final int IF_COUNT = 10;
   private static final int PORT = 1161;
   private static final String USER = "simuser";
